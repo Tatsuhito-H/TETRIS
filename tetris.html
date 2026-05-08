@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Family Tetris - Pastel Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #f8fafc;
+            color: #334155;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            overflow: hidden;
+            touch-action: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #game-container {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 400px;
+        }
+        canvas {
+            border: 8px solid #e2e8f0;
+            background-color: #ffffff;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+            max-height: 50vh;
+            image-rendering: pixelated;
+            border-radius: 12px;
+        }
+        .control-btn {
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        select {
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.5rem center;
+            background-size: 1em;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container" class="p-4">
+    <!-- ヘッダー：スコアとレベル選択 -->
+    <div class="flex justify-between items-center w-full mb-4 px-2">
+        <div id="score-display" class="font-bold text-2xl text-slate-600">SCORE: 0</div>
+        <div class="flex items-center gap-2">
+            <label for="level-select" class="font-bold text-sm text-slate-400">LV:</label>
+            <select id="level-select" class="bg-white border-2 border-slate-200 rounded-lg px-2 py-1 font-bold text-slate-600 focus:outline-none focus:border-blue-300">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- ゲームボード -->
+    <div class="relative">
+        <canvas id="tetris"></canvas>
+        <!-- 一時停止オーバーレイ -->
+        <div id="pause-text" class="absolute inset-0 flex items-center justify-center bg-white/60 rounded-lg hidden">
+            <span class="text-4xl font-black text-slate-400 tracking-widest text-center">PAUSED<br><small class="text-sm font-normal">画面のPAUSEボタンで再開</small></span>
+        </div>
+    </div>
+
+    <!-- 操作パネル -->
+    <div class="grid grid-cols-3 gap-3 mt-6 w-full px-4">
+        <div class="flex flex-col gap-3">
+            <button id="btn-left" class="control-btn bg-slate-200 hover:bg-slate-300 active:bg-slate-400 h-16 w-full rounded-2xl flex items-center justify-center text-3xl text-slate-600">←</button>
+            <button id="btn-pause" class="control-btn bg-rose-200 hover:bg-rose-300 active:bg-rose-400 h-14 w-full rounded-2xl flex items-center justify-center text-xs font-black text-rose-700">PAUSE</button>
+        </div>
+        <div class="flex flex-col gap-3">
+            <button id="btn-rotate" class="control-btn bg-sky-200 hover:bg-sky-300 active:bg-sky-400 h-16 w-full rounded-2xl flex items-center justify-center text-3xl text-sky-700">↻</button>
+            <button id="btn-down" class="control-btn bg-slate-200 hover:bg-slate-300 active:bg-slate-400 h-16 w-full rounded-2xl flex items-center justify-center text-3xl text-slate-600">↓</button>
+        </div>
+        <div class="flex flex-col gap-3">
+            <button id="btn-right" class="control-btn bg-slate-200 hover:bg-slate-300 active:bg-slate-400 h-16 w-full rounded-2xl flex items-center justify-center text-3xl text-slate-600">→</button>
+        </div>
+    </div>
+</div>
+
+<!-- ゲームオーバー画面 -->
+<div id="overlay" class="fixed inset-0 bg-slate-900/95 flex flex-col items-center justify-center hidden z-50">
+    <h1 class="text-5xl font-black mb-4 text-rose-400">GAME OVER</h1>
+    <div id="final-score" class="text-2xl mb-8 text-white font-bold">Score: 0</div>
+    <button id="restart-btn" class="bg-sky-400 hover:bg-sky-500 text-white px-12 py-4 rounded-full font-bold text-xl active:scale-95 transition shadow-xl">再挑戦する</button>
+</div>
+
+<script>
+    const canvas = document.getElementById('tetris');
+    const context = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score-display');
+    const levelSelect = document.getElementById('level-select');
+    const overlay = document.getElementById('overlay');
+    const pauseText = document.getElementById('pause-text');
+    const finalScoreDisplay = document.getElementById('final-score');
+    const restartBtn = document.getElementById('restart-btn');
+
+    // ゲーム設定
+    const COLS = 10;
+    const ROWS = 20;
+    const BLOCK_SIZE = Math.min(window.innerWidth / 12, 28);
+    canvas.width = COLS * BLOCK_SIZE;
+    canvas.height = ROWS * BLOCK_SIZE;
+    context.scale(BLOCK_SIZE, BLOCK_SIZE);
+
+    const PIECES = {
+        'I': [[0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0], [0, 1, 0, 0]],
+        'L': [[0, 2, 0], [0, 2, 0], [0, 2, 2]],
+        'J': [[0, 3, 0], [0, 3, 0], [3, 3, 0]],
+        'O': [[4, 4], [4, 4]],
+        'Z': [[5, 5, 0], [0, 5, 5], [0, 0, 0]],
+        'S': [[0, 6, 6], [6, 6, 0], [0, 0, 0]],
+        'T': [[0, 7, 0], [7, 7, 7], [0, 0, 0]]
+    };
+
+    // パステルカラー
+    const COLORS = [
+        null,
+        '#A5F3FC', // I
+        '#FFCF96', // L
+        '#A5B4FC', // J
+        '#FDE68A', // O
+        '#FCA5A5', // Z
+        '#BCF4B1', // S
+        '#D8B4FE', // T
+    ];
+
+    let arena = createMatrix(COLS, ROWS);
+    let score = 0;
+    let currentLevel = 1;
+    let paused = false;
+
+    const player = {
+        pos: {x: 0, y: 0},
+        matrix: null,
+        score: 0,
+    };
+
+    function createMatrix(w, h) {
+        const matrix = [];
+        while (h--) matrix.push(new Array(w).fill(0));
+        return matrix;
+    }
+
+    function draw() {
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // 薄いグリッド線
+        context.strokeStyle = '#f1f5f9';
+        context.lineWidth = 0.02;
+        for(let x=0; x<COLS; x++) {
+            for(let y=0; y<ROWS; y++) {
+                context.strokeRect(x, y, 1, 1);
+            }
+        }
+
+        drawMatrix(arena, {x: 0, y: 0});
+        drawMatrix(player.matrix, player.pos);
+    }
+
+    function drawMatrix(matrix, offset) {
+        matrix.forEach((row, y) => {
+            row.forEach((value, x) => {
+                if (value !== 0) {
+                    context.fillStyle = COLORS[value];
+                    context.fillRect(x + offset.x, y + offset.y, 1, 1);
+                    context.strokeStyle = 'rgba(0,0,0,0.05)';
+                    context.lineWidth = 0.05;
+                    context.strokeRect(x + offset.x, y + offset.y, 1, 1);
+                    // 光沢
+                    context.fillStyle = 'rgba(255,255,255,0.3)';
+                    context.fillRect(x + offset.x + 0.1, y + offset.y + 0.1, 0.8, 0.2);
+                }
+            });
+        });
+    }
+
+    function merge(arena, player) {
+        player.matrix.forEach((row, y) => {
+            row.forEach((value, x) => {
+                if (value !== 0) arena[y + player.pos.y][x + player.pos.x] = value;
+            });
+        });
+    }
+
+    function rotate(matrix, dir) {
+        for (let y = 0; y < matrix.length; ++y) {
+            for (let x = 0; x < y; ++x) {
+                [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+            }
+        }
+        if (dir > 0) matrix.forEach(row => row.reverse());
+        else matrix.reverse();
+    }
+
+    function playerDrop() {
+        if (paused) return;
+        player.pos.y++;
+        if (collide(arena, player)) {
+            player.pos.y--;
+            merge(arena, player);
+            playerReset();
+            arenaSweep();
+            updateScoreUI();
+        }
+        dropCounter = 0;
+    }
+
+    function playerMove(dir) {
+        if (paused) return;
+        player.pos.x += dir;
+        if (collide(arena, player)) player.pos.x -= dir;
+    }
+
+    function playerRotate(dir) {
+        if (paused) return;
+        const pos = player.pos.x;
+        let offset = 1;
+        rotate(player.matrix, dir);
+        while (collide(arena, player)) {
+            player.pos.x += offset;
+            offset = -(offset + (offset > 0 ? 1 : -1));
+            if (offset > player.matrix[0].length) {
+                rotate(player.matrix, -dir);
+                player.pos.x = pos;
+                return;
+            }
+        }
+    }
+
+    function togglePause() {
+        paused = !paused;
+        if (paused) {
+            pauseText.classList.remove('hidden');
+        } else {
+            pauseText.classList.add('hidden');
+        }
+    }
+
+    function collide(arena, player) {
+        const [m, o] = [player.matrix, player.pos];
+        for (let y = 0; y < m.length; ++y) {
+            for (let x = 0; x < m[y].length; ++x) {
+                if (m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) return true;
+            }
+        }
+        return false;
+    }
+
+    function arenaSweep() {
+        let rowCount = 1;
+        outer: for (let y = arena.length - 1; y > 0; --y) {
+            for (let x = 0; x < arena[y].length; ++x) {
+                if (arena[y][x] === 0) continue outer;
+            }
+            const row = arena.splice(y, 1)[0].fill(0);
+            arena.unshift(row);
+            ++y;
+            player.score += rowCount * 10;
+            
+            // 自動レベルアップ（設定レベルより上になったら更新）
+            const calculatedLevel = Math.floor(player.score / 100) + 1;
+            if (calculatedLevel > currentLevel) {
+                currentLevel = Math.min(10, calculatedLevel);
+                levelSelect.value = currentLevel;
+            }
+            rowCount *= 2;
+        }
+    }
+
+    function playerReset() {
+        const pieces = 'ILJOTSZ';
+        player.matrix = PIECES[pieces[pieces.length * Math.random() | 0]];
+        player.pos.y = 0;
+        player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+        if (collide(arena, player)) gameOver();
+    }
+
+    function gameOver() {
+        cancelAnimationFrame(animationId);
+        finalScoreDisplay.innerText = `Score: ${player.score}`;
+        overlay.classList.remove('hidden');
+    }
+
+    function resetGame() {
+        arena.forEach(row => row.fill(0));
+        player.score = 0;
+        currentLevel = parseInt(levelSelect.value);
+        paused = false;
+        pauseText.classList.add('hidden');
+        updateScoreUI();
+        playerReset();
+        overlay.classList.add('hidden');
+        lastTime = 0;
+        update();
+    }
+
+    function updateScoreUI() {
+        scoreElement.innerText = `SCORE: ${player.score}`;
+    }
+
+    let dropCounter = 0;
+    let baseInterval = 1000;
+    let lastTime = 0;
+    let animationId;
+
+    function update(time = 0) {
+        const deltaTime = time - lastTime;
+        lastTime = time;
+
+        if (!paused) {
+            const currentInterval = Math.max(80, baseInterval - (currentLevel - 1) * 90);
+            dropCounter += deltaTime;
+            if (dropCounter > currentInterval) playerDrop();
+            draw();
+        }
+        animationId = requestAnimationFrame(update);
+    }
+
+    // イベント登録（PointerEventでマウス・タッチ両対応）
+    const bindBtn = (id, fn) => {
+        const el = document.getElementById(id);
+        el.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            fn();
+        });
+    };
+
+    bindBtn('btn-left', () => playerMove(-1));
+    bindBtn('btn-right', () => playerMove(1));
+    bindBtn('btn-rotate', () => playerRotate(1));
+    bindBtn('btn-down', () => playerDrop());
+    bindBtn('btn-pause', () => togglePause());
+
+    levelSelect.addEventListener('change', (e) => {
+        currentLevel = parseInt(e.target.value);
+        levelSelect.blur();
+    });
+
+    document.addEventListener('keydown', event => {
+        if (event.keyCode === 37) playerMove(-1); // Left
+        else if (event.keyCode === 39) playerMove(1); // Right
+        else if (event.keyCode === 40) playerDrop(); // Down
+        else if (event.keyCode === 38) playerRotate(1); // Up
+        else if (event.keyCode === 80) togglePause(); // P key
+    });
+
+    restartBtn.addEventListener('click', resetGame);
+    
+    // 開始
+    playerReset();
+    updateScoreUI();
+    update();
+</script>
+</body>
+</html>
